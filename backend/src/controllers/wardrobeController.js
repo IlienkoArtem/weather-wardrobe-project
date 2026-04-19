@@ -5,8 +5,14 @@ const User = require('../models/User');
 exports.getItems = (req, res) => {
   try {
     const { deviceId } = req.params;
+    
+    // Шукаємо користувача за deviceId
     const user = User.findByDeviceId(deviceId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // ПЕРЕВІРКА: Якщо користувача немає або він не зареєстрував email — повертаємо порожній список
+    if (!user || !user.email) {
+      return res.json({ items: [] });
+    }
 
     const items = WardrobeItem.getAllByUserId(user.id);
     res.json({ items });
@@ -19,19 +25,22 @@ exports.getItems = (req, res) => {
 exports.addItem = (req, res) => {
   try {
     const { deviceId } = req.params;
-    const { name } = req.body;
+    const { name, photoBase64 } = req.body;
 
     if (!name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Item name is required' });
     }
-    if (name.trim().length > 100) {
-      return res.status(400).json({ error: 'Item name too long (max 100 chars)' });
+
+    // Шукаємо користувача
+    const user = User.findByDeviceId(deviceId);
+
+    // ПЕРЕВІРКА: Не даємо додавати речі анонімам
+    if (!user || !user.email) {
+      return res.status(403).json({ error: 'Registration required to add items' });
     }
 
-    const user = User.findByDeviceId(deviceId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const item = WardrobeItem.create(user.id, name.trim(), photoBase64 || null);
 
-    const item = WardrobeItem.create(user.id, name.trim());
     if (!item) {
       return res.status(409).json({ error: 'Item already exists in wardrobe' });
     }
@@ -45,12 +54,19 @@ exports.addItem = (req, res) => {
 exports.deleteItem = (req, res) => {
   try {
     const { deviceId, itemId } = req.params;
+    
     const user = User.findByDeviceId(deviceId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    // ПЕРЕВІРКА ПРАВ
+    if (!user || !user.email) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const deleted = WardrobeItem.deleteById(parseInt(itemId), user.id);
-    if (!deleted) return res.status(404).json({ error: 'Item not found' });
 
+    if (!deleted) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
     res.json({ success: true, message: 'Item removed from wardrobe' });
   } catch (err) {
     console.error('deleteItem error:', err);
@@ -63,16 +79,22 @@ exports.updatePhoto = (req, res) => {
     const { deviceId, itemId } = req.params;
     const { photoBase64 } = req.body;
 
-    const user = User.findByDeviceId(deviceId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!photoBase64) {
+      return res.status(400).json({ error: 'photoBase64 is required' });
+    }
 
-    // Припускаємо, що у моделі WardrobeItem є метод updatePhoto
+    const user = User.findByDeviceId(deviceId);
+
+    // ПЕРЕВІРКА ПРАВ
+    if (!user || !user.email) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     const updatedItem = WardrobeItem.updatePhoto(parseInt(itemId), user.id, photoBase64);
-    
+
     if (!updatedItem) {
       return res.status(404).json({ error: 'Item not found or access denied' });
     }
-
     res.json({ item: updatedItem });
   } catch (err) {
     console.error('updatePhoto error:', err);

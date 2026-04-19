@@ -1,3 +1,4 @@
+// frontend/src/screens/HomeScreen.js
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, StyleSheet,
@@ -16,63 +17,102 @@ import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
 const CITY_KEY = '@ww_city';
 const UNIT_KEY = '@ww_unit';
+const LANG_KEY = '@ww_lang';
+
+const TRANSLATIONS = {
+  uk: {
+    appTitle: '🌤️ Погода & Гардероб',
+    loading: 'Завантаження...',
+    enterCity: 'Введіть місто',
+    emptySub: 'Щоб дізнатись погоду та отримати поради по одягу',
+    recommendToday: 'Рекомендації на сьогодні',
+    recommendDay: 'Рекомендації на день',
+    error: 'Помилка',
+  },
+  en: {
+    appTitle: '🌤️ Weather & Wardrobe',
+    loading: 'Loading...',
+    enterCity: 'Enter city',
+    emptySub: 'To get weather and clothing advice',
+    recommendToday: 'Today\'s recommendations',
+    recommendDay: 'Day recommendations',
+    error: 'Error',
+  }
+};
 
 export default function HomeScreen({ navigation }) {
   const { deviceId, loading: deviceLoading } = useDeviceId();
   const { weatherData, loading, error, fetchWeather, clearError } = useWeather();
 
-  const [city, setCity]         = useState('');
-  const [unit, setUnit]         = useState('Celsius');
-  const [ready, setReady]       = useState(false);
+  const [city, setCity] = useState('');
+  const [unit, setUnit] = useState('Celsius');
+  const [lang, setLang] = useState('uk'); 
+  const [ready, setReady] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
 
-  // Завантажити збережені налаштування
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.uk;
+
+  // 1. ПЕРШЕ ЗАВАНТАЖЕННЯ
   useEffect(() => {
     if (!deviceId) return;
     (async () => {
       try {
-        const [savedCity, savedUnit] = await Promise.all([
+        const [savedCity, savedUnit, savedLang] = await Promise.all([
           AsyncStorage.getItem(CITY_KEY),
           AsyncStorage.getItem(UNIT_KEY),
+          AsyncStorage.getItem(LANG_KEY),
         ]);
+        
+        const currentLang = savedLang || 'uk';
+        setLang(currentLang);
+        
         const resolvedUnit = savedUnit || 'Celsius';
         setUnit(resolvedUnit);
+
         await getOrCreateUser(deviceId).catch(() => {});
+        
         if (savedCity) {
           setCity(savedCity);
-          await fetchWeather(savedCity, resolvedUnit, deviceId);
+          await fetchWeather(savedCity, resolvedUnit, deviceId, currentLang);
         }
+      } catch (err) {
+        console.error("Home init error:", err);
       } finally {
         setReady(true);
       }
     })();
   }, [deviceId]);
 
-  // Слухаємо зміни налаштувань з SettingsScreen
+  // 2. ОНОВЛЕННЯ ПРИ ПОВЕРНЕННІ
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', async () => {
-      const [savedCity, savedUnit] = await Promise.all([
+      const [savedCity, savedUnit, savedLang] = await Promise.all([
         AsyncStorage.getItem(CITY_KEY),
         AsyncStorage.getItem(UNIT_KEY),
+        AsyncStorage.getItem(LANG_KEY),
       ]);
+
       const newUnit = savedUnit || 'Celsius';
-      const newCity = savedCity || city;
-      if (newUnit !== unit || newCity !== city) {
+      const newCity = savedCity || '';
+      const newLang = savedLang || 'uk';
+
+      if (newLang !== lang || newUnit !== unit || newCity !== city) {
+        setLang(newLang);
         setUnit(newUnit);
         setCity(newCity);
-        if (newCity) fetchWeather(newCity, newUnit, deviceId);
+        if (newCity) fetchWeather(newCity, newUnit, deviceId, newLang);
       }
     });
     return unsubscribe;
-  }, [navigation, unit, city, deviceId]);
+  }, [navigation, unit, city, lang, deviceId]);
 
   const handleSearch = useCallback(async (newCity) => {
     clearError();
     setSelectedDay(null);
     setCity(newCity);
     await AsyncStorage.setItem(CITY_KEY, newCity);
-    fetchWeather(newCity, unit, deviceId);
-  }, [unit, deviceId]);
+    fetchWeather(newCity, unit, deviceId, lang);
+  }, [unit, deviceId, lang]);
 
   const unitSymbol = unit === 'Celsius' ? '°C' : '°F';
   const current = weatherData?.current;
@@ -82,7 +122,7 @@ export default function HomeScreen({ navigation }) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={COLORS.skyMid} />
-        <Text style={styles.loadingText}>Завантаження...</Text>
+        <Text style={styles.loadingText}>{t.loading}</Text>
       </View>
     );
   }
@@ -93,8 +133,7 @@ export default function HomeScreen({ navigation }) {
 
       <LinearGradient colors={[COLORS.skyDeep, COLORS.skyMid, COLORS.skyLight]} style={styles.header}>
         <View style={styles.headerTop}>
-          <Text style={styles.appTitle}>🌤️ Погода & Гардероб</Text>
-          {/* Єдина кнопка налаштувань */}
+          <Text style={styles.appTitle}>{t.appTitle}</Text>
           <TouchableOpacity
             style={styles.settingsBtn}
             onPress={() => navigation.navigate('Settings', { deviceId })}
@@ -111,8 +150,11 @@ export default function HomeScreen({ navigation }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={loading} tintColor={COLORS.skyMid}
-            onRefresh={() => city && fetchWeather(city, unit, deviceId)} />
+          <RefreshControl 
+            refreshing={loading} 
+            tintColor={COLORS.skyMid}
+            onRefresh={() => city && fetchWeather(city, unit, deviceId, lang)} 
+          />
         }
       >
         {error && (
@@ -127,8 +169,8 @@ export default function HomeScreen({ navigation }) {
         {!city && !loading && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>🌍</Text>
-            <Text style={styles.emptyTitle}>Введіть місто</Text>
-            <Text style={styles.emptySub}>Щоб дізнатись погоду та отримати поради по одягу</Text>
+            <Text style={styles.emptyTitle}>{t.enterCity}</Text>
+            <Text style={styles.emptySub}>{t.emptySub}</Text>
           </View>
         )}
 
@@ -140,14 +182,31 @@ export default function HomeScreen({ navigation }) {
 
         {current && (
           <>
-            <WeatherCard current={current} unitSymbol={unitSymbol} />
-            <ClothingRecommendations recommendations={current.recommendations} title="Рекомендації на сьогодні" />
-            <ForecastRow forecast={forecast} unitSymbol={unitSymbol}
-              onDayPress={day => setSelectedDay(p => p?.date === day.date ? null : day)} />
+            <WeatherCard current={current} unitSymbol={unitSymbol} lang={lang} />
+            
+            {/* ТУТ ДОДАНО lang={lang} */}
+            <ClothingRecommendations 
+              recommendations={current.recommendations} 
+              title={t.recommendToday} 
+              lang={lang} 
+            />
+
+            <ForecastRow 
+              forecast={forecast} 
+              unitSymbol={unitSymbol}
+              lang={lang}
+              onDayPress={day => setSelectedDay(p => p?.date === day.date ? null : day)} 
+            />
+            
             {selectedDay && (
               <View style={styles.selectedDay}>
                 <Text style={styles.selectedDayTitle}>{selectedDay.formattedDate}</Text>
-                <ClothingRecommendations recommendations={selectedDay.recommendations} title="Рекомендації на день" />
+                {/* І ТУТ ДОДАНО lang={lang} */}
+                <ClothingRecommendations 
+                  recommendations={selectedDay.recommendations} 
+                  title={t.recommendDay} 
+                  lang={lang}
+                />
               </View>
             )}
           </>
@@ -170,7 +229,7 @@ const styles = StyleSheet.create({
   },
   settingsIcon: { fontSize: 20 },
   scroll: { flex: 1 },
-  scrollContent: { paddingTop: SPACING.lg },
+  scrollContent: { paddingTop: SPACING.md },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
   loadingText: { marginTop: SPACING.sm, color: COLORS.textMuted },
   errorBox: {

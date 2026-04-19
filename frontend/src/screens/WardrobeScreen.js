@@ -1,82 +1,130 @@
-import React, { useState } from 'react';
+// frontend/src/screens/WardrobeScreen.js
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
   Alert, ActivityIndicator, StatusBar, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useWardrobe } from '../hooks/useWardrobe';
-import { updateItemPhoto, BASE_URL } from '../services/api';
+import { BASE_URL } from '../services/api';
 import { COLORS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
-const EMOJI_MAP = {
-  шапка:'🧢', кепка:'🧢', шарф:'🧣', панама:'👒', футболка:'👕', сорочка:'👔',
-  майка:'🎽', светр:'🧶', кофта:'🧥', куртка:'🧥', пальто:'🧥', пуховик:'🧥',
-  шуба:'🧥', шорти:'🩳', штани:'👖', джинси:'👖', спідниця:'👗', легінси:'👖',
-  сандалі:'👡', босоніжки:'👡', кросівки:'👟', туфлі:'👞', шкарпетки:'🧦',
-  черевики:'👢', чоботи:'👢',
+const LANG_KEY = '@ww_lang';
+
+const TRANSLATIONS = {
+  uk: {
+    back: '← Назад', title: '👗 Мій гардероб', itemsCount: (n) => `${n} предметів`,
+    addPlaceholder: 'Додати одяг (наприклад: куртка)', emptyTitle: 'Гардероб порожній',
+    emptySub: 'Додайте одяг для персональних рекомендацій', error: 'Помилка',
+    delTitle: 'Видалити', delConfirm: (name) => `Видалити "${name}"?`,
+    cancel: 'Скасувати', delete: 'Видалити', photoPerm: 'Потрібен дозвіл',
+    photoPermSub: 'Дозвольте доступ до галереї в налаштуваннях',
+    photoError: 'Не вдалося завантажити фото', addError: 'Не вдалося додати. Можливо, такий предмет вже існує.',
+    changePhoto: '📷 Натисни щоб змінити фото', addPhoto: '📷 Натисни щоб додати фото',
+    loading: 'Завантаження...',
+    categories: { head: 'Голова', torso: 'Верх', legs: 'Низ', feet: 'Взуття', other: 'Інше' }
+  },
+  en: {
+    back: '← Back', title: '👗 My Wardrobe', itemsCount: (n) => `${n} items`,
+    addPlaceholder: 'Add clothing (e.g.: jacket)', emptyTitle: 'Wardrobe is empty',
+    emptySub: 'Add items to get personalized recommendations', error: 'Error',
+    delTitle: 'Delete', delConfirm: (name) => `Delete "${name}"?`,
+    cancel: 'Cancel', delete: 'Delete', photoPerm: 'Permission required',
+    photoPermSub: 'Please allow gallery access in settings',
+    photoError: 'Failed to upload photo', addError: 'Failed to add. Item might already exist.',
+    changePhoto: '📷 Tap to change photo', addPhoto: '📷 Tap to add photo',
+    loading: 'Loading...',
+    categories: { head: 'Head', torso: 'Top', legs: 'Bottom', feet: 'Shoes', other: 'Other' }
+  }
 };
-const CATEGORY_UA = { head:'Голова', torso:'Верх', legs:'Низ', feet:'Взуття', other:'Інше' };
+
+const EMOJI_MAP = {
+  шапка:'🧢', hat:'🧢', кепка:'🧢', cap:'🧢', шарф:'🧣', scarf:'🧣', 
+  панама:'👒', футболка:'👕', tshirt:'👕', сорочка:'👔', shirt:'👔',
+  майка:'🎽', светр:'🧶', sweater:'🧶', кофта:'🧥', jacket:'🧥', куртка:'🧥',
+  пальто:'🧥', coat:'🧥', шорти:'🩳', shorts:'🩳', штани:'👖', pants:'👖',
+  джинси:'👖', jeans:'👖', кросівки:'👟', sneakers:'👟', черевики:'👢', boots:'👢'
+};
 
 function getEmoji(name) {
   const l = name.toLowerCase();
-  for (const [k, v] of Object.entries(EMOJI_MAP)) if (l.includes(k)) return v;
+  for (const [k, v] of Object.entries(EMOJI_MAP)) {
+    if (l.includes(k)) return v;
+  }
   return '👔';
 }
+
 function photoUri(url) {
   if (!url) return null;
-  return url.startsWith('http') ? url : BASE_URL.replace('/api', '') + url;
+  if (url.startsWith('http')) return url;
+  const serverRoot = BASE_URL.replace('/api', '');
+  return `${serverRoot}${url}`;
 }
-async function pickImage() {
+
+async function pickImage(t) {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== 'granted') { Alert.alert('Потрібен дозвіл', 'Дозвольте доступ до галереї'); return null; }
+  if (status !== 'granted') {
+    Alert.alert(t.photoPerm, t.photoPermSub);
+    return null;
+  }
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    allowsEditing: true, aspect: [1, 1], quality: 0.7, base64: true,
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.6,
+    base64: true,
   });
-  if (res.canceled) return null;
+  if (res.canceled || !res.assets?.[0]) return null;
   return 'data:image/jpeg;base64,' + res.assets[0].base64;
 }
 
-function ItemCard({ item, onDelete, onPhotoChange }) {
+function ItemCard({ item, onDelete, onPhotoChange, t }) {
   const [uploading, setUploading] = useState(false);
   const uri = photoUri(item.photo_url);
 
   const handlePhoto = async () => {
-    const b64 = await pickImage();
+    const b64 = await pickImage(t);
     if (!b64) return;
     setUploading(true);
-    try { await onPhotoChange(item.id, b64); }
-    catch (e) { Alert.alert('Помилка', 'Не вдалося завантажити фото'); }
-    finally { setUploading(false); }
+    try {
+      await onPhotoChange(item.id, b64);
+    } catch (e) {
+      Alert.alert(t.error, t.photoError);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
     <View style={styles.item}>
       <TouchableOpacity style={styles.photoWrap} onPress={handlePhoto} activeOpacity={0.8}>
         {uploading ? (
-          <ActivityIndicator color={COLORS.skyMid} />
+          <View style={styles.photoEmpty}><ActivityIndicator color={COLORS.skyMid} /></View>
         ) : uri ? (
           <Image source={{ uri }} style={styles.photo} />
         ) : (
-          <View style={styles.photoEmpty}>
-            <Text style={styles.emoji}>{getEmoji(item.name)}</Text>
-          </View>
+          <View style={styles.photoEmpty}><Text style={styles.emoji}>{getEmoji(item.name)}</Text></View>
         )}
         <View style={styles.photoTag}><Text style={{ fontSize: 10 }}>📷</Text></View>
       </TouchableOpacity>
 
       <View style={styles.itemInfo}>
         <Text style={styles.itemName}>{item.name}</Text>
-        <Text style={styles.itemCat}>{CATEGORY_UA[item.category] || item.category}</Text>
-        <Text style={styles.photoHint}>{uri ? '📷 Змінити фото' : '📷 Додати фото'}</Text>
+        <Text style={styles.itemCat}>{t.categories[item.category] || item.category}</Text>
+        <Text style={styles.photoHint}>{uri ? t.changePhoto : t.addPhoto}</Text>
       </View>
 
-      <TouchableOpacity style={styles.delBtn} activeOpacity={0.7}
-        onPress={() => Alert.alert('Видалити', `Видалити "${item.name}"?`, [
-          { text: 'Скасувати', style: 'cancel' },
-          { text: 'Видалити', style: 'destructive', onPress: () => onDelete(item.id) },
-        ])}>
+      <TouchableOpacity
+        style={styles.delBtn}
+        onPress={() =>
+          Alert.alert(t.delTitle, t.delConfirm(item.name), [
+            { text: t.cancel, style: 'cancel' },
+            { text: t.delete, style: 'destructive', onPress: () => onDelete(item.id) },
+          ])
+        }
+      >
         <Text style={styles.delBtnText}>✕</Text>
       </TouchableOpacity>
     </View>
@@ -85,23 +133,36 @@ function ItemCard({ item, onDelete, onPhotoChange }) {
 
 export default function WardrobeScreen({ route, navigation }) {
   const deviceId = route.params?.deviceId;
-  const { items, loading, addItem, removeItem, refetch } = useWardrobe(deviceId);
+  const { items, loading, addItem, removeItem, changeItemPhoto } = useWardrobe(deviceId);
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
+  const [lang, setLang] = useState('uk');
+
+  useEffect(() => {
+    (async () => {
+      const savedLang = await AsyncStorage.getItem(LANG_KEY);
+      if (savedLang) setLang(savedLang);
+    })();
+  }, []);
+
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.uk;
 
   const handleAdd = async () => {
     const name = newName.trim();
     if (!name) return;
     setAdding(true);
     const ok = await addItem(name);
-    if (ok) setNewName('');
-    else Alert.alert('Помилка', 'Не вдалося додати. Можливо вже існує.');
+    if (ok) {
+      setNewName('');
+    } else {
+      Alert.alert(t.error, t.addError);
+    }
     setAdding(false);
   };
 
   const handlePhotoChange = async (itemId, b64) => {
-    await updateItemPhoto(deviceId, itemId, b64);
-    await refetch();
+    const ok = await changeItemPhoto(itemId, b64);
+    if (!ok) Alert.alert(t.error, t.photoError);
   };
 
   return (
@@ -109,22 +170,24 @@ export default function WardrobeScreen({ route, navigation }) {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.skyDeep} />
       <LinearGradient colors={[COLORS.skyDeep, COLORS.skyMid]} style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>← Назад</Text>
+          <Text style={styles.backText}>{t.back}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>👗 Мій гардероб</Text>
-        <Text style={styles.headerSub}>{items.length} предметів</Text>
+        <Text style={styles.headerTitle}>{t.title}</Text>
+        <Text style={styles.headerSub}>{t.itemsCount(items.length)}</Text>
       </LinearGradient>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.addRow}>
-          <TextInput style={styles.input} value={newName} onChangeText={setNewName}
-            placeholder="Додати одяг (наприклад: куртка)"
+          <TextInput
+            style={styles.input}
+            value={newName}
+            onChangeText={setNewName}
+            placeholder={t.addPlaceholder}
             placeholderTextColor={COLORS.textMuted}
-            returnKeyType="done" onSubmitEditing={handleAdd} />
-          <TouchableOpacity style={[styles.addBtn, adding && styles.addBtnOff]}
-            onPress={handleAdd} disabled={adding} activeOpacity={0.8}>
-            {adding ? <ActivityIndicator size="small" color={COLORS.white} />
-              : <Text style={styles.addBtnText}>+</Text>}
+            onSubmitEditing={handleAdd}
+          />
+          <TouchableOpacity style={[styles.addBtn, adding && styles.addBtnOff]} onPress={handleAdd} disabled={adding}>
+            {adding ? <ActivityIndicator size="small" color={COLORS.white} /> : <Text style={styles.addBtnText}>+</Text>}
           </TouchableOpacity>
         </View>
 
@@ -133,16 +196,18 @@ export default function WardrobeScreen({ route, navigation }) {
         ) : items.length === 0 ? (
           <View style={styles.empty}>
             <Text style={{ fontSize: 64 }}>🧺</Text>
-            <Text style={styles.emptyTitle}>Гардероб порожній</Text>
-            <Text style={styles.emptySub}>Додайте одяг для персональних рекомендацій</Text>
+            <Text style={styles.emptyTitle}>{t.emptyTitle}</Text>
+            <Text style={styles.emptySub}>{t.emptySub}</Text>
           </View>
         ) : (
-          <FlatList data={items} keyExtractor={i => String(i.id)}
+          <FlatList
+            data={items}
+            keyExtractor={i => String(i.id)}
             contentContainerStyle={{ paddingHorizontal: SPACING.md, paddingBottom: 80 }}
-            showsVerticalScrollIndicator={false}
             renderItem={({ item }) => (
-              <ItemCard item={item} onDelete={removeItem} onPhotoChange={handlePhotoChange} />
-            )} />
+              <ItemCard item={item} onDelete={removeItem} onPhotoChange={handlePhotoChange} t={t} />
+            )}
+          />
         )}
       </KeyboardAvoidingView>
     </View>
@@ -156,7 +221,7 @@ const styles = StyleSheet.create({
   backText: { color: 'rgba(255,255,255,0.75)', fontSize: 14, fontWeight: '600' },
   headerTitle: { fontSize: 24, fontWeight: '800', color: COLORS.white },
   headerSub: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
-  addRow: { flexDirection: 'row', margin: SPACING.md, backgroundColor: COLORS.surfaceCard, borderRadius: RADIUS.full, overflow: 'hidden', ...SHADOWS.card },
+  addRow: { flexDirection: 'row', margin: SPACING.md, backgroundColor: COLORS.surfaceCard, borderRadius: RADIUS.full, ...SHADOWS.card, overflow: 'hidden' },
   input: { flex: 1, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2, fontSize: 15, color: COLORS.textPrimary },
   addBtn: { backgroundColor: COLORS.skyMid, paddingHorizontal: SPACING.md, justifyContent: 'center', alignItems: 'center', minWidth: 52 },
   addBtnOff: { backgroundColor: COLORS.skyFog },

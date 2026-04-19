@@ -7,7 +7,8 @@ const WardrobeItem = require('../models/WardrobeItem');
 exports.getWeather = async (req, res) => {
   try {
     const { city } = req.params;
-    const { unit = 'Celsius', deviceId } = req.query;
+    // Додаємо lang до деструктуризації
+    const { unit = 'Celsius', deviceId, lang = 'uk' } = req.query;
 
     if (!city || city.trim().length === 0) {
       return res.status(400).json({ error: 'City name is required' });
@@ -16,21 +17,23 @@ exports.getWeather = async (req, res) => {
       return res.status(400).json({ error: 'Invalid unit. Must be Celsius or Fahrenheit.' });
     }
 
-    const weatherData = await getWeatherAndForecast(city.trim(), unit);
+    // Передаємо lang у сервіс погоди
+    const weatherData = await getWeatherAndForecast(city.trim(), unit, lang);
     res.json(weatherData);
   } catch (err) {
     if (err.response?.status === 404) {
       return res.status(404).json({ error: `City "${req.params.city}" not found` });
     }
     console.error('getWeather error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch weather data. Check city name or try again later.' });
+    res.status(500).json({ error: 'Failed to fetch weather data.' });
   }
 };
 
 exports.getRecommendations = async (req, res) => {
   try {
     const { city } = req.params;
-    const { unit = 'Celsius', deviceId } = req.query;
+    // Отримуємо lang з запиту (за замовчуванням 'uk')
+    const { unit = 'Celsius', deviceId, lang = 'uk' } = req.query;
 
     if (!city || !deviceId) {
       return res.status(400).json({ error: 'City and deviceId are required' });
@@ -39,23 +42,26 @@ exports.getRecommendations = async (req, res) => {
     const user = User.findByDeviceId(deviceId);
     const wardrobeItems = user ? WardrobeItem.getAllByUserId(user.id) : [];
 
-    const weatherData = await getWeatherAndForecast(city.trim(), unit);
+    // 1. Отримуємо погоду з урахуванням мови
+    const weatherData = await getWeatherAndForecast(city.trim(), unit, lang);
     const { current, forecast } = weatherData;
 
-    // Get recommendations for today
-    const todayRec = recommend(current.temp, unit, wardrobeItems);
-    const tip = getWeatherTip(current.description, current.icon);
+    // 2. Рекомендації на сьогодні з урахуванням мови
+    const todayRec = recommend(current.temp, unit, wardrobeItems, lang);
+    const tip = getWeatherTip(current.description, current.icon, lang);
 
-    // Get recommendations for forecast days
-    const forecastRecs = forecast.map(day => ({
-      date: day.date,
-      formattedDate: day.formattedDate,
-      ...recommend(day.avgTemp, unit, wardrobeItems),
-    }));
+    // 3. Рекомендації для прогнозу з урахуванням мови
+    const forecastWithRecs = forecast.map(day => {
+      const dayRec = recommend(day.avgTemp, unit, wardrobeItems, lang);
+      return { 
+        ...day, 
+        recommendations: dayRec 
+      };
+    });
 
     res.json({
       current: { ...current, recommendations: todayRec, tip },
-      forecast: forecast.map((day, i) => ({ ...day, recommendations: forecastRecs[i] })),
+      forecast: forecastWithRecs,
     });
   } catch (err) {
     if (err.response?.status === 404) {

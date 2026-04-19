@@ -1,3 +1,4 @@
+// backend/src/models/User.js
 const { getDb } = require('../../config/database');
 const crypto = require('crypto');
 
@@ -20,17 +21,35 @@ class User {
   static findOrCreate(deviceId) {
     let user = this.findByDeviceId(deviceId);
     if (!user) {
-      const result = getDb().prepare('INSERT INTO users (device_id) VALUES (?)').run(deviceId);
+      const result = getDb()
+        .prepare('INSERT INTO users (device_id) VALUES (?)')
+        .run(deviceId);
       user = this.findById(result.lastInsertRowid);
     }
     return user;
   }
   static register(deviceId, { email, username, password }) {
+    const db = getDb();
     const passwordHash = hashPassword(password);
-    getDb().prepare(`
-      UPDATE users SET email=?, username=?, password_hash=?, updated_at=CURRENT_TIMESTAMP
-      WHERE device_id=?
+
+    // Make sure user exists first
+    this.findOrCreate(deviceId);
+
+    // Check if email is taken by a DIFFERENT device
+    const existing = this.findByEmail(email);
+    if (existing && existing.device_id !== deviceId) {
+      throw new Error('EMAIL_TAKEN');
+    }
+
+    db.prepare(`
+      UPDATE users
+      SET email = ?,
+          username = ?,
+          password_hash = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE device_id = ?
     `).run(email, username, passwordHash, deviceId);
+
     return this.findByDeviceId(deviceId);
   }
   static login(email, password) {
@@ -41,17 +60,31 @@ class User {
   }
   static updateSettings(deviceId, { preferredCity, tempUnit, language }) {
     const db = getDb();
-    const fields = [], values = [];
-    if (preferredCity !== undefined) { fields.push('preferred_city=?'); values.push(preferredCity); }
-    if (tempUnit      !== undefined) { fields.push('temp_unit=?');      values.push(tempUnit); }
-    if (language      !== undefined) { fields.push('language=?');       values.push(language); }
+    const fields = [];
+    const values = [];
+
+    if (preferredCity !== undefined) {
+      fields.push('preferred_city = ?');
+      values.push(preferredCity);
+    }
+    if (tempUnit !== undefined) {
+      fields.push('temp_unit = ?');
+      values.push(tempUnit);
+    }
+    if (language !== undefined) {
+      fields.push('language = ?');
+      values.push(language);
+    }
+
     if (!fields.length) return this.findByDeviceId(deviceId);
-    fields.push('updated_at=CURRENT_TIMESTAMP');
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
     values.push(deviceId);
-    db.prepare(`UPDATE users SET ${fields.join(',')} WHERE device_id=?`).run(...values);
+
+    db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE device_id = ?`).run(...values);
     return this.findByDeviceId(deviceId);
   }
-  // Повернути без пароля
+  // Return user without password
   static safe(user) {
     if (!user) return null;
     const { password_hash, ...safe } = user;

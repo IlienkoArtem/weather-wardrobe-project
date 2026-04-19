@@ -3,11 +3,17 @@ import React from 'react';
 import { View, Text, Image, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { COLORS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
-export default function ForecastRow({ forecast, unitSymbol, onDayPress }) {
+export default function ForecastRow({ forecast, unitSymbol, onDayPress, lang = 'uk' }) {
   if (!forecast?.length) return null;
+
+  const t = {
+    uk: { title: 'Прогноз на 4 дні' },
+    en: { title: '4-Day Forecast' }
+  }[lang];
+
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.heading}>Прогноз на 4 дні</Text>
+      <Text style={styles.heading}>{t.title}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {forecast.map((day) => (
           <TouchableOpacity

@@ -1,15 +1,8 @@
-// backend/src/services/weatherService.js
 const axios = require('axios');
 const { getDb } = require('../../config/database');
 
 const API_KEY = process.env.OPENWEATHER_API_KEY || 'fb73c960451f4232da579140019bb2d3';
 const CACHE_TTL_MINUTES = 10;
-
-const UKR_WEEKDAYS = { 0: 'Пн', 1: 'Вт', 2: 'Ср', 3: 'Чт', 4: 'Пт', 5: 'Сб', 6: 'Нд' };
-const UKR_MONTHS = {
-  1: 'Січ', 2: 'Лют', 3: 'Бер', 4: 'Кві', 5: 'Тра', 6: 'Чер',
-  7: 'Лип', 8: 'Сер', 9: 'Вер', 10: 'Жов', 11: 'Лис', 12: 'Гру',
-};
 
 function mostCommon(arr) {
   const counts = {};
@@ -21,38 +14,49 @@ function mostCommon(arr) {
   return result;
 }
 
-function getCached(city, unit) {
+// Оновлено: додано lang у ключ кешу
+function getCached(city, unit, lang) {
   const db = getDb();
   const cutoff = new Date(Date.now() - CACHE_TTL_MINUTES * 60 * 1000).toISOString();
   const row = db.prepare(
-    `SELECT data FROM weather_cache WHERE city = ? AND unit = ? AND cached_at > ? ORDER BY cached_at DESC LIMIT 1`
-  ).get(city.toLowerCase(), unit, cutoff);
+    `SELECT data FROM weather_cache WHERE city = ? AND unit = ? AND lang = ? AND cached_at > ? ORDER BY cached_at DESC LIMIT 1`
+  ).get(city.toLowerCase(), unit, lang, cutoff);
   return row ? JSON.parse(row.data) : null;
 }
 
-function setCache(city, unit, data) {
+function setCache(city, unit, lang, data) {
   const db = getDb();
-  db.prepare(
-    `INSERT INTO weather_cache (city, unit, data) VALUES (?, ?, ?)`
-  ).run(city.toLowerCase(), unit, JSON.stringify(data));
-  // Cleanup old cache entries
+  // Переконайся, що в таблиці weather_cache є колонка lang, або просто ігноруй її тут, 
+  // якщо не хочеш міняти схему БД (але краще додати)
+  try {
+    db.prepare(
+      `INSERT INTO weather_cache (city, unit, lang, data) VALUES (?, ?, ?, ?)`
+    ).run(city.toLowerCase(), unit, lang, JSON.stringify(data));
+  } catch (e) {
+    // Якщо колонки lang немає, пишемо без неї
+    db.prepare(
+      `INSERT INTO weather_cache (city, unit, data) VALUES (?, ?, ?)`
+    ).run(city.toLowerCase(), unit, JSON.stringify(data));
+  }
   db.prepare(`DELETE FROM weather_cache WHERE cached_at < datetime('now', '-1 hour')`).run();
 }
 
-async function getWeatherAndForecast(city, unit = 'Celsius') {
-  const cached = getCached(city, unit);
+async function getWeatherAndForecast(city, unit = 'Celsius', lang = 'uk') {
+  const cached = getCached(city, unit, lang);
   if (cached) return { ...cached, fromCache: true };
 
   const unitParam = unit === 'Celsius' ? 'metric' : 'imperial';
   const unitSymbol = unit === 'Celsius' ? '°C' : '°F';
+  // OpenWeather використовує 'ua' для української, але 'en' для англійської
+  const apiLang = lang === 'uk' ? 'ua' : 'en';
 
   const [currentRes, forecastRes] = await Promise.all([
     axios.get(`https://api.openweathermap.org/data/2.5/weather`, {
-      params: { q: city, appid: API_KEY, units: unitParam, lang: 'ua' },
+      params: { q: city, appid: API_KEY, units: unitParam, lang: apiLang },
       timeout: 7000,
     }),
     axios.get(`https://api.openweathermap.org/data/2.5/forecast`, {
-      params: { q: city, appid: API_KEY, units: unitParam, lang: 'ua' },
+      params: { q: city, appid: API_KEY, units: unitParam, lang: apiLang },
       timeout: 7000,
     }),
   ]);
@@ -72,7 +76,6 @@ async function getWeatherAndForecast(city, unit = 'Celsius') {
     unitSymbol,
   };
 
-  // Process 5-day forecast into daily aggregates
   const dailyMap = {};
   for (const item of forecastRes.data.list) {
     const date = item.dt_txt.split(' ')[0];
@@ -91,14 +94,22 @@ async function getWeatherAndForecast(city, unit = 'Celsius') {
     .slice(1, 5)
     .map(([date, d]) => {
       const dateObj = new Date(date + 'T12:00:00');
+      
+      // АВТОМАТИЧНИЙ ПЕРЕКЛАД ДАТИ
+      const locale = lang === 'uk' ? 'uk-UA' : 'en-US';
+      const formattedDate = dateObj.toLocaleDateString(locale, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short'
+      });
+
       const avgTemp = Math.round(d.temps.reduce((a, b) => a + b, 0) / d.temps.length);
       const icon = mostCommon(d.icons);
       const description = mostCommon(d.descriptions);
-      const weekday = UKR_WEEKDAYS[dateObj.getDay()];
-      const month = UKR_MONTHS[dateObj.getMonth() + 1];
+
       return {
         date,
-        formattedDate: `${weekday}, ${dateObj.getDate()} ${month}`,
+        formattedDate: formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1),
         minTemp: Math.round(d.minTemp),
         maxTemp: Math.round(d.maxTemp),
         avgTemp,
@@ -109,7 +120,7 @@ async function getWeatherAndForecast(city, unit = 'Celsius') {
     });
 
   const result = { current, forecast, unit, unitSymbol };
-  setCache(city, unit, result);
+  setCache(city, unit, lang, result);
   return { ...result, fromCache: false };
 }
 

@@ -1,62 +1,104 @@
+// backend/src/controllers/userController.js
 const User = require('../models/User');
 
 exports.getOrCreateUser = (req, res) => {
   try {
-    const user = User.findOrCreate(req.params.deviceId);
+    const deviceId = req.params.deviceId;
+    console.log(`[GET] Fetching or creating user for device: ${deviceId}`);
+    
+    const user = User.findOrCreate(deviceId);
     res.json({ user: User.safe(user) });
   } catch (e) {
-    res.status(500).json({ error: 'Помилка сервера' });
+    console.error('getOrCreateUser error:', e.message);
+    res.status(500).json({ error: 'Помилка сервера при отриманні користувача' });
   }
 };
 
 exports.register = (req, res) => {
   try {
     const { email, username, password } = req.body;
-    if (!email || !username || !password)
-      return res.status(400).json({ error: 'email, username та password обовʼязкові' });
-    if (password.length < 6)
-      return res.status(400).json({ error: 'Пароль мінімум 6 символів' });
+    const deviceId = req.params.deviceId;
 
-    const existing = User.findByEmail(email);
-    if (existing && existing.device_id !== req.params.deviceId)
-      return res.status(409).json({ error: 'Цей email вже використовується' });
+    console.log(`[POST] Registering user for device: ${deviceId}`, { email, username });
 
-    const user = User.register(req.params.deviceId, { email: email.trim(), username: username.trim(), password });
+    if (!email || !username || !password) {
+      return res.status(400).json({ error: 'Email, імʼя та пароль обовʼязкові' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Пароль має бути мінімум 6 символів' });
+    }
+    
+    // Перевірка формату email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ error: 'Невірний формат email' });
+    }
+
+    let user;
+    try {
+      user = User.register(deviceId, {
+        email: email.trim().toLowerCase(),
+        username: username.trim(),
+        password,
+      });
+    } catch (e) {
+      console.error('User.register internal error:', e.message);
+      if (e.message === 'EMAIL_TAKEN' || e.message.includes('UNIQUE constraint failed: users.email')) {
+        return res.status(409).json({ error: 'Цей email вже використовується іншим пристроєм' });
+      }
+      throw e; // Прокидаємо далі до зовнішнього catch
+    }
+
     res.json({ user: User.safe(user) });
   } catch (e) {
-    res.status(500).json({ error: 'Помилка сервера' });
+    console.error('!!! REGISTER CONTROLLER ERROR:', e);
+    // Повертаємо текст помилки на фронтенд для дебагу курсової
+    res.status(500).json({ error: 'Помилка сервера: ' + e.message });
   }
 };
 
 exports.login = (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password)
-      return res.status(400).json({ error: 'email та password обовʼязкові' });
 
-    const user = User.login(email.trim(), password);
-    if (!user) return res.status(401).json({ error: 'Невірний email або пароль' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email та пароль обовʼязкові' });
+    }
+
+    const user = User.login(email.trim().toLowerCase(), password);
+    if (!user) {
+      return res.status(401).json({ error: 'Невірний email або пароль' });
+    }
 
     res.json({ user: User.safe(user) });
   } catch (e) {
-    res.status(500).json({ error: 'Помилка сервера' });
+    console.error('login error:', e.message);
+    res.status(500).json({ error: 'Помилка сервера при вході' });
   }
 };
 
 exports.updateSettings = (req, res) => {
   try {
     const { preferredCity, tempUnit, language } = req.body;
-    if (tempUnit && !['Celsius','Fahrenheit'].includes(tempUnit))
+    const deviceId = req.params.deviceId;
+
+    console.log(`[PATCH] Updating settings for ${deviceId}:`, req.body);
+
+    if (tempUnit && !['Celsius', 'Fahrenheit'].includes(tempUnit)) {
       return res.status(400).json({ error: 'tempUnit має бути Celsius або Fahrenheit' });
-    if (language && !['uk','en'].includes(language))
+    }
+    if (language && !['uk', 'en'].includes(language)) {
       return res.status(400).json({ error: 'language має бути uk або en' });
+    }
 
-    const user = User.findByDeviceId(req.params.deviceId);
-    if (!user) return res.status(404).json({ error: 'Користувача не знайдено' });
+    // Переконуємося, що користувач існує
+    User.findOrCreate(deviceId);
 
-    const updated = User.updateSettings(req.params.deviceId, { preferredCity, tempUnit, language });
+    const updated = User.updateSettings(deviceId, { preferredCity, tempUnit, language });
     res.json({ user: User.safe(updated) });
   } catch (e) {
-    res.status(500).json({ error: 'Помилка сервера' });
+    console.error('updateSettings error:', e.message);
+    res.status(500).json({ error: 'Помилка сервера при оновленні налаштувань' });
   }
 };

@@ -3,8 +3,14 @@ import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 import { COLORS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
-export default function WeatherCard({ current, unitSymbol }) {
+export default function WeatherCard({ current, unitSymbol, lang = 'uk' }) {
   if (!current) return null;
+
+  const t = {
+    uk: { feels: 'Відчувається як', humidity: 'Вологість', wind: 'Вітер', speed: 'м/с' },
+    en: { feels: 'Feels like', humidity: 'Humidity', wind: 'Wind', speed: 'm/s' }
+  }[lang];
+
   return (
     <View style={styles.card}>
       <View style={styles.row}>
@@ -15,17 +21,17 @@ export default function WeatherCard({ current, unitSymbol }) {
           <Text style={styles.city}>{current.city}, {current.country}</Text>
           <Text style={styles.temp}>{current.temp}{unitSymbol}</Text>
           <Text style={styles.desc}>{current.description}</Text>
-          <Text style={styles.feels}>Відчувається як {current.feelsLike}{unitSymbol}</Text>
+          <Text style={styles.feels}>{t.feels} {current.feelsLike}{unitSymbol}</Text>
         </View>
       </View>
       <View style={styles.extras}>
         <View style={styles.extraItem}>
-          <Text style={styles.extraLabel}>💧 Вологість</Text>
+          <Text style={styles.extraLabel}>💧 {t.humidity}</Text>
           <Text style={styles.extraValue}>{current.humidity}%</Text>
         </View>
         <View style={styles.extraItem}>
-          <Text style={styles.extraLabel}>💨 Вітер</Text>
-          <Text style={styles.extraValue}>{current.windSpeed} м/с</Text>
+          <Text style={styles.extraLabel}>💨 {t.wind}</Text>
+          <Text style={styles.extraValue}>{current.windSpeed} {t.speed}</Text>
         </View>
       </View>
       {current.tip && (
@@ -39,14 +45,7 @@ export default function WeatherCard({ current, unitSymbol }) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: COLORS.surfaceCard,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
-    marginHorizontal: SPACING.md,
-    marginBottom: SPACING.md,
-    ...SHADOWS.card,
-  },
+  card: { backgroundColor: COLORS.surfaceCard, borderRadius: RADIUS.lg, padding: SPACING.lg, marginHorizontal: SPACING.md, marginBottom: SPACING.md, ...SHADOWS.card },
   row: { flexDirection: 'row', alignItems: 'center' },
   icon: { width: 80, height: 80, marginRight: SPACING.md },
   info: { flex: 1 },
@@ -54,25 +53,11 @@ const styles = StyleSheet.create({
   temp: { fontSize: 52, fontWeight: '800', color: COLORS.skyDeep, lineHeight: 58 },
   desc: { fontSize: 16, color: COLORS.textSecondary, textTransform: 'capitalize' },
   feels: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
-  extras: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: SPACING.md,
-    paddingTop: SPACING.md,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
-  },
+  extras: { flexDirection: 'row', justifyContent: 'space-around', marginTop: SPACING.md, paddingTop: SPACING.md, borderTopWidth: 1, borderTopColor: COLORS.borderLight },
   extraItem: { alignItems: 'center' },
   extraLabel: { fontSize: 12, color: COLORS.textMuted },
   extraValue: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, marginTop: 2 },
-  tipRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: SPACING.md,
-    backgroundColor: COLORS.cloud,
-    borderRadius: RADIUS.md,
-    padding: SPACING.sm,
-  },
+  tipRow: { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.md, backgroundColor: COLORS.cloud, borderRadius: RADIUS.md, padding: SPACING.sm },
   tipEmoji: { fontSize: 20, marginRight: SPACING.sm },
   tipText: { fontSize: 13, color: COLORS.skyDeep, flex: 1, fontWeight: '600' },
 });
