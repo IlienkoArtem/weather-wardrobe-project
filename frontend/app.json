@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Погода & Гардероб",
+    "slug": "weather-wardrobe",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0B3D91"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.yourname.weatherwardrobe"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0B3D91"
+      },
+      "package": "com.yourname.weatherwardrobe"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "scheme": "weather-wardrobe",
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
